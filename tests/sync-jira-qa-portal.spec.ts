@@ -13,21 +13,26 @@ let allIssues: any [] = [];
 test.describe.configure({ mode: 'serial' });
 
 
-test('Jauthorizes in Jira', async ({ request }) => {
+test('authorizes in Jira', async ({ request }) => {
+    
+    console.log("Step 1: authorizes in Jira");
 
     const jiraClient = new JiraClient(request);
     const jiraEmail: string = process.env.JIRA_EMAIL!;
-
     const response = await jiraClient.getMyself();
     expect(response.ok()).toBeTruthy();
-
     jiraUser = await response.json();
+
     console.log('✅ Jira user:', jiraUser.emailAddress);
+
     expect(jiraUser.emailAddress).toEqual(jiraEmail);
   
 });
 
 test('retrieves JQL from Jira filter', async ({ request }) => {
+
+    console.log("Step 2: retrieves JQL from Jira filter");
+
     const jiraClient = new JiraClient(request);
     const filterId = jiraData.allBugsFilter;
     const response = await jiraClient.getFilter(filterId);
@@ -43,21 +48,23 @@ test('retrieves JQL from Jira filter', async ({ request }) => {
 });
 
 test('fetches all issues from Jira', async ({ request }) => {
-  const jiraClient = new JiraClient(request);
 
-  // JQL берём из предыдущего теста, но можно и напрямую
-  const jql = `filter=${jiraData.allBugsFilter}`;
-  const fields = [jiraData.customFields.platform, jiraData.customFields.priority];
+    console.log("Step 3: fetches all issues from Jira");
+    
+    const jiraClient = new JiraClient(request);
+    // JQL берём из предыдущего теста, но можно и напрямую
+    const jql = filterJQL;
+    const fields = [jiraData.customFields.platform, jiraData.customFields.priority];
 
-  allIssues = await jiraClient.getAllIssues(jql, fields);
+    allIssues = await jiraClient.getAllIssues(jql, fields);
 
-  console.log(`✅ Retrieved ${allIssues.length} issues`);
-  expect(allIssues.length).toBeGreaterThan(0);
+      console.log(`✅ Retrieved ${allIssues.length} issues`);
+    expect(allIssues.length).toBeGreaterThan(0);
 
-  // Пример проверки: каждая issue должна содержать priority
-  for (const issue of allIssues) {
-    expect(issue.fields.priority).toBeTruthy();
-  }
+    // Пример проверки: каждая issue должна содержать priority
+    for (const issue of allIssues) {
+        expect(issue.fields.priority).toBeTruthy();
+    }
 });
 
 test.skip('counts bugs grouped by platform', async ({ request }) => {
