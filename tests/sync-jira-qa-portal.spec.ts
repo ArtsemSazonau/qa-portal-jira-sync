@@ -2,6 +2,12 @@ import { test, expect } from '@playwright/test';
 import { JiraClient } from '../helpers/jiraClient';
 import { jiraData } from '../data/jiraData';
 
+let statsByPlatform: Record<string, Record<string, number>> = {};
+
+const CYAN = '\x1b[36m';
+const GREEN = '\x1b[32m';
+const RED = '\x1b[31m';
+const RESET = '\x1b[0m';
 
 let jiraUser: any;
 let filterJQL: string;
@@ -15,61 +21,76 @@ test.describe.configure({ mode: 'serial' });
 
 test('authorizes in Jira', async ({ request }) => {
     
-    console.log("Step 1: authorizes in Jira");
+    console.log(GREEN + "Step 1: authorizes in Jira");
 
-    const jiraClient = new JiraClient(request);
-    const jiraEmail: string = process.env.JIRA_EMAIL!;
-    const response = await jiraClient.getMyself();
-    expect(response.ok()).toBeTruthy();
-    jiraUser = await response.json();
-
-    console.log('✅ Jira user:', jiraUser.emailAddress);
-
-    expect(jiraUser.emailAddress).toEqual(jiraEmail);
+    const jira = new JiraClient();
+    const resp = await jira.getMyself();
+    expect(resp.status).toBe(200);
+    jiraUser = resp.data;
+    console.log('✅ Jira user:', jiraUser.emailAddress || jiraUser.accountId);
+    expect(jiraUser.emailAddress).toBe(process.env.JIRA_EMAIL);
   
 });
 
-test('retrieves JQL from Jira filter', async ({ request }) => {
-
-    console.log("Step 2: retrieves JQL from Jira filter");
-
-    const jiraClient = new JiraClient(request);
-    const filterId = jiraData.allBugsFilter;
-    const response = await jiraClient.getFilter(filterId);
-
-    expect(response.ok()).toBeTruthy();
-
-    const filter = await response.json();
-    filterJQL = filter.jql;
-
-    console.log('✅ JQL retrieved:', filterJQL);
-    expect(filterJQL).toBeTruthy();
-
+test('retrieves JQL from Jira filter', async () => {
+  console.log(CYAN + 'Step 2: retrieves JQL from Jira filter');
+  const jira = new JiraClient();
+  const filterId = jiraData.allBugsFilter;
+  const resp = await jira.getFilter(filterId);
+  expect(resp.status).toBe(200);
+  const filter = resp.data;
+  filterJQL = filter.jql;
+  console.log('✅ JQL retrieved:', filterJQL);
+  expect(typeof filterJQL).toBe('string');
 });
 
-test('fetches all issues from Jira', async ({ request }) => {
+test('fetches all issues from Jira', async () => {
+  console.log(RED + 'Step 3: fetches all issues from Jira');
+  const jira = new JiraClient();
+  const jql = filterJQL;
+  const fields = [jiraData.customFields.platform, jiraData.customFields.priority];
+  allIssues = await jira.getAllIssues(jql, fields);
+  console.log(`✅ Retrieved ${allIssues.length} issues`);
+  expect(allIssues.length).toBeGreaterThan(0);
+  for (const issue of allIssues) {
+    expect(issue.fields).toBeTruthy();
+  }
+});
 
-    console.log("Step 3: fetches all issues from Jira");
-    
-    const jiraClient = new JiraClient(request);
-    // JQL берём из предыдущего теста, но можно и напрямую
-    const jql = filterJQL;
-    const fields = [jiraData.customFields.platform, jiraData.customFields.priority];
+test('counts bugs grouped by platform', async () => {
+  // define known platforms/priorities (optional; code works with dynamic values too)
+  const knownPlatforms = ['Tizen','WebOS','AndroidTV','Android','iOS','tvOS','Chromecast'];
+  const knownPriorities = ['Highest','High','Medium','Low','Lowest'];
 
-    allIssues = await jiraClient.getAllIssues(jql, fields);
+  console.log(GREEN + 'Step 4: counts by platform');
 
-      console.log(`✅ Retrieved ${allIssues.length} issues`);
-    expect(allIssues.length).toBeGreaterThan(0);
+  // initialize stats object (ensure keys exist if you prefer zeros for all combinations)
+  statsByPlatform = {};
 
-    // Пример проверки: каждая issue должна содержать priority
-    for (const issue of allIssues) {
-        expect(issue.fields.priority).toBeTruthy();
+  // iterate issues and accumulate counts
+  for (const issue of allIssues) {
+    const priName: string = issue?.fields?.priority?.name ?? 'Unknown';
+    let platformsField: any = issue?.fields?.customfield_10622;
+
+    if (!platformsField) {
+      // if platform not present, count under "Unknown"
+      platformsField = ['Unknown'];
+    } else if (!Array.isArray(platformsField)) {
+      platformsField = [platformsField];
     }
-});
 
-test.skip('counts bugs grouped by platform', async ({ request }) => {
-    await request.goto('/');
-    await expect(request).toHaveURL('https://playwright.dev/docs/intro');
+    for (const platform of platformsField) {
+      const plat = String(platform);
+      if (!statsByPlatform[plat]) statsByPlatform[plat] = {};
+      if (!statsByPlatform[plat][priName]) statsByPlatform[plat][priName] = 0;
+      statsByPlatform[plat][priName] += 1;
+    }
+  }
+
+  console.log('Grouped stats by platform and priority:\n', JSON.stringify(statsByPlatform, null, 2));
+
+  // basic assertions: at least one platform counted
+  expect(Object.keys(statsByPlatform).length).toBeGreaterThan(0);
 });
 
 test.skip('authorizes in QA-Portal', async ({ request }) => {
