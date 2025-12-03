@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { JiraClient } from '../helpers/jiraClient';
 import { jiraData } from '../data/jiraData';
+import { QAPortalQualityTracker } from '../page_objects/QAPortalQualityTracker';
 
 let statsByPlatform: Record<string, Record<string, number>> = {};
 
@@ -19,7 +20,7 @@ let allIssues: any [] = [];
 test.describe.configure({ mode: 'serial' });
 
 
-test('authorizes in Jira', async ({ request }) => {
+test('authorizes in Jira', async () => {
     
     console.log(GREEN + "Step 1: authorizes in Jira");
 
@@ -87,15 +88,29 @@ test('counts bugs grouped by platform', async () => {
     }
   }
 
-  console.log('Grouped stats by platform and priority:\n', JSON.stringify(statsByPlatform, null, 2));
+  console.log('Grouped stats by platform and priority:\n', statsByPlatform);
 
   // basic assertions: at least one platform counted
   expect(Object.keys(statsByPlatform).length).toBeGreaterThan(0);
 });
 
-test.skip('authorizes in QA-Portal', async ({ request }) => {
-    await request.goto('/');
-    await expect(request).toHaveURL('https://playwright.dev/docs/intro');
+test('authorizes in QA-Portal', async ({ page }) => {
+
+  console.log(CYAN + 'Step 5: QA portal authorization');
+  const qaPortalQualityTracker = new QAPortalQualityTracker(page);
+  
+  const login = process.env.QATRACKER_LOGIN;
+  const password = process.env.QATRACKER_PASSWORD;
+
+  await qaPortalQualityTracker.visit();
+  await qaPortalQualityTracker.login(login, password);
+  
+  await expect(qaPortalQualityTracker.logOutButton).toBeVisible();
+  console.log(CYAN + 'login successfull')
+
+  //await page.pause();
+
+
 });
 
 test.skip('retrieves available projects from QA-Portal', async ({ request }) => {
