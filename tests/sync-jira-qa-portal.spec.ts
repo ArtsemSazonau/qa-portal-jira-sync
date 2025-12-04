@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { JiraClient } from '../helpers/jiraClient';
 import { jiraData } from '../data/jiraData';
 import { QAPortalQualityTracker } from '../page_objects/QAPortalQualityTracker';
+import { platformMapping } from '../data/platformMapping'; // add at file top with other imports
+
+import * as fs from 'fs';
 
 let statsByPlatform: Record<string, Record<string, number>> = {};
 
@@ -21,6 +24,8 @@ test.describe.configure({ mode: 'serial' });
 
 
 test('authorizes in Jira', async () => {
+
+  
     
     console.log(GREEN + "Step 1: authorizes in Jira");
 
@@ -94,31 +99,93 @@ test('counts bugs grouped by platform', async () => {
   expect(Object.keys(statsByPlatform).length).toBeGreaterThan(0);
 });
 
-test('authorizes in QA-Portal', async ({ page }) => {
+test('authorizes in QA-Portal', async ({ page, context }) => {
+  
 
   console.log(CYAN + 'Step 5: QA portal authorization');
   const qaPortalQualityTracker = new QAPortalQualityTracker(page);
   
-  const login = process.env.QATRACKER_LOGIN;
-  const password = process.env.QATRACKER_PASSWORD;
+  const login = process.env.QATRACKER_LOGIN!;
+  const password = process.env.QATRACKER_PASSWORD!;
 
   await qaPortalQualityTracker.visit();
   await qaPortalQualityTracker.login(login, password);
   
   await expect(qaPortalQualityTracker.logOutButton).toBeVisible();
-  console.log(CYAN + 'login successfull')
+  console.log(GREEN + '✅ QA Portal login successful' + RESET);
+
+    // сохранить storageState (cookies + localStorage)
+  const storageState = await context.storageState();
+  fs.writeFileSync('auth.json', JSON.stringify(storageState, null, 2));
+  console.log('✅ Session saved to auth.json');
 
   //await page.pause();
 
 
 });
 
-test.skip('retrieves available projects from QA-Portal', async ({ request }) => {
-    await request.goto('/');
-    await expect(request).toHaveURL('https://playwright.dev/docs/intro');
-});
+test('syncs grouped bug data to QA-Portal', async ({ browser }) => {
+    
+  console.log(GREEN + 'Step 6: Syncs bug data to QA-Portal' + RESET);
 
-test.skip('syncs grouped bug data to QA-Portal', async ({ request }) => {
-    await request.goto('/');
-    await expect(request).toHaveURL('https://playwright.dev/docs/intro');
+  // создать новый контекст с сохранённым состоянием из auth.json
+  const context = await browser.newContext({
+    storageState: 'auth.json',
+  });
+  const page = await context.newPage();
+
+  const qaPortalQualityTracker = new QAPortalQualityTracker(page);
+  
+  await qaPortalQualityTracker.visit();
+  await expect(qaPortalQualityTracker.logOutButton).toBeVisible();
+  console.log('✅ Session restored, user is logged in');
+
+  let synced = 0;
+
+  // Iterate platformMapping in a stable order
+  for (const [platformKey, projectName] of Object.entries(platformMapping)) {
+    console.log(`\n📊 Processing platform mapping: ${platformKey} -> ${projectName}`);
+
+    // 1) initial inputs should be disabled
+    await expect(qaPortalQualityTracker.disabledInput).toBeEnabled();
+
+    // 2) click to enable inputs
+    await qaPortalQualityTracker.projectSizeMedium.click();
+    // 3) now inputs should be enabled
+    await expect(qaPortalQualityTracker.enabledInput).toBeVisible();
+
+    // 4) prepare stats for this platform (may be undefined)
+    const stats = (statsByPlatform as Record<string, Record<string, number>>)[platformKey];
+
+    if (stats && Object.keys(stats).length > 0) {
+      // fill only provided values; page object's method will only overwrite fields present in stats
+      await qaPortalQualityTracker.fillBugsByPriority(stats);
+      console.log(`Filled values for ${platformKey}:`, stats);
+    } else {
+      console.log(`No data for ${platformKey}; leaving default values`);
+    }
+
+    // 5) open Save modal and select project
+    await qaPortalQualityTracker.saveResultLink.click();
+    // make sure combobox is present before selecting
+    await qaPortalQualityTracker.projectsDropdown.waitFor({ state: 'visible', timeout: 3000 });
+    await qaPortalQualityTracker.projectsDropdown.selectOption(projectName);
+
+    // 6) click Save
+    await qaPortalQualityTracker.saveResultButton.click();
+
+    // 7) wait for UI to return to disabled state before next platform
+    // Wait that field becomes disabled again (save action should disable inputs)
+    await expect(qaPortalQualityTracker.disabledInput).toBeEnabled({ timeout: 8000 });
+
+    synced++;
+    console.log(`✅ Synced ${platformKey}`);
+  }
+
+  console.log(GREEN + `\n✅ All ${synced} platforms synced to QA Portal` + RESET);
+  expect(synced).toBeGreaterThan(0);
+
+  await context.close();
+
+    
 });
