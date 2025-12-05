@@ -31,6 +31,18 @@ test('authorizes in Jira', async () => {
 
     const jira = new JiraClient();
     const resp = await jira.getMyself();
+
+      // Проверка статуса ответа
+  if (!resp.status || resp.status < 200 || resp.status >= 300) {
+    console.error(RED + `❌ Jira API Error: HTTP ${resp.status} ${resp.statusText}` + RESET);
+    console.error(RED + `Response data:`, resp.data + RESET);
+    throw new Error(
+      `Jira authorization failed with status ${resp.status}. ` +
+      `Check JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_BASE_URL in .env file. ` +
+      `Response: ${JSON.stringify(resp.data)}`
+    );
+  }
+
     expect(resp.status).toBe(200);
     jiraUser = resp.data;
     console.log('✅ Jira user:', jiraUser.emailAddress || jiraUser.accountId);
@@ -154,22 +166,32 @@ test('syncs grouped bug data to QA-Portal', async ({ browser }) => {
     // 3) now inputs should be enabled
     await expect(qaPortalQualityTracker.enabledInput).toBeVisible();
 
-    // 4) prepare stats for this platform (may be undefined)
-    const stats = (statsByPlatform as Record<string, Record<string, number>>)[platformKey];
+      // 4) open Save modal so we can try selecting project
+    await qaPortalQualityTracker.saveResultLink.click();
+    await qaPortalQualityTracker.projectsDropdown.waitFor({ state: 'visible', timeout: 3000 });
 
+    // Try to select project BEFORE filling values.
+    // If selection fails (option not found or disabled), skip filling and continue to next platform.
+    const projectSelected = await qaPortalQualityTracker.selectProjectByPlatform(platformKey);
+    if (!projectSelected) {
+      console.log(`⏭️  Skipping ${platformKey} — project not available or disabled`);
+      // set all fields to 0 before moving on (as requested)
+      if (typeof qaPortalQualityTracker.clearAllFields === 'function') {
+        await qaPortalQualityTracker.clearAllFields();
+      }
+      // close modal if needed (attempt press Esc or click outside). Adjust if your UI differs.
+      await qaPortalQualityTracker.page.keyboard.press('Escape').catch(() => {});
+      continue;
+    };
+
+    // 5) prepare stats for this platform — fill values only when project is selectable
+    const stats = (statsByPlatform as Record<string, Record<string, number>>)[platformKey];
     if (stats && Object.keys(stats).length > 0) {
-      // fill only provided values; page object's method will only overwrite fields present in stats
       await qaPortalQualityTracker.fillBugsByPriority(stats);
       console.log(`Filled values for ${platformKey}:`, stats);
     } else {
       console.log(`No data for ${platformKey}; leaving default values`);
-    }
-
-    // 5) open Save modal and select project
-    await qaPortalQualityTracker.saveResultLink.click();
-    // make sure combobox is present before selecting
-    await qaPortalQualityTracker.projectsDropdown.waitFor({ state: 'visible', timeout: 3000 });
-    await qaPortalQualityTracker.projectsDropdown.selectOption(projectName);
+  }
 
     // 6) click Save
     await qaPortalQualityTracker.saveResultButton.click();

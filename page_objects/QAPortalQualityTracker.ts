@@ -59,9 +59,28 @@ export class QAPortalQualityTracker {
             console.log(`⚠️ Skipping unmapped platform: ${platform}`);
             return false;
         }
+
+         // проверить, есть ли опция в dropdown'е и включена ли она
+    const option = this.page.getByRole('option', { name: projectName });
+    try {
+        await option.waitFor({ state: 'visible', timeout: 2000 });
+        
+        // проверить, disabled ли опция
+        const isDisabled = await option.evaluate((el: HTMLOptionElement) => el.disabled);
+        if (isDisabled) {
+            console.log(`⚠️ Project option "${projectName}" is DISABLED. Skipping...`);
+            return false;
+        }
+
+        // если включена — выбираем
         await this.projectsDropdown.selectOption(projectName);
         await this.page.waitForTimeout(500);
+        console.log(`✅ Selected project: ${projectName}`);
         return true;
+    } catch (err) {
+        console.log(`⚠️ Project option "${projectName}" not found or not available. Skipping...`);
+        return false;
+    }
     };
     
 
@@ -105,6 +124,15 @@ export class QAPortalQualityTracker {
     saveResults = async (): Promise<void> => {
         await this.saveResultLink.click();
         await this.page.waitForTimeout(1000);
-    };    
+    }; 
+    
+    clearAllFields = async (): Promise<void> => {
+        await this.fieldBlocker.fill('0');
+        await this.fieldCritical.fill('0');
+        await this.fieldMajor.fill('0');
+        await this.fieldMinor.fill('0');
+        await this.fieldTrivial.fill('0');
+        console.log('✅ Cleared all fields (set to 0)');
+};
 
 }
