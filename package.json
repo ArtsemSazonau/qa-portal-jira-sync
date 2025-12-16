@@ -2,7 +2,12 @@
   "name": "ts-learn",
   "version": "1.0.0",
   "main": "index.js",
-  "scripts": {},
+  "scripts": {
+    "test": "playwright test",
+    "test:watch": "playwright test --watch",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
