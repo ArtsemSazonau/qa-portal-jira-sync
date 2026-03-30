@@ -137,77 +137,68 @@ test('authorizes in QA-Portal', async ({ page, context }) => {
 });
 
 test('syncs grouped bug data to QA-Portal', async ({ browser }) => {
-    
+
   console.log(GREEN + 'Step 6: Syncs bug data to QA-Portal' + RESET);
 
-  // создать новый контекст с сохранённым состоянием из auth.json
-  const context = await browser.newContext({
-    storageState: 'auth.json',
-  });
+  const context = await browser.newContext({ storageState: 'auth.json' });
   const page = await context.newPage();
+  const qa = new QAPortalQualityTracker(page);
 
-  const qaPortalQualityTracker = new QAPortalQualityTracker(page);
-  
-  await qaPortalQualityTracker.visit();
-  await expect(qaPortalQualityTracker.logOutButton).toBeVisible();
+  await qa.visit();
+  await expect(qa.logOutButton).toBeVisible();
   console.log('✅ Session restored, user is logged in');
 
-  let synced = 0;
+  const synced: string[] = [];
+  const skipped: string[] = [];
 
-  // Iterate platformMapping in a stable order
   for (const [platformKey, projectName] of Object.entries(platformMapping)) {
-    console.log(`\n📊 Processing platform mapping: ${platformKey} -> ${projectName}`);
+    console.log(`\n📊 Processing: ${platformKey} -> ${projectName}`);
 
-    // 1) initial inputs should be disabled
-    await expect(qaPortalQualityTracker.disabledInput).toBeEnabled();
+    // navigate to ensure clean page state on each iteration
+    await qa.visit();
+    await expect(qa.logOutButton).toBeVisible({ timeout: 5000 });
 
-    // 2) click to enable inputs
-    await qaPortalQualityTracker.projectSizeMedium.click();
-    // 3) now inputs should be enabled
-    await expect(qaPortalQualityTracker.enabledInput).toBeVisible();
+    // enable inputs
+    await qa.projectSizeMedium.click();
+    await expect(qa.enabledInput).toBeVisible({ timeout: 5000 });
 
-      // 4) open Save modal so we can try selecting project
-    await qaPortalQualityTracker.saveResultLink.click();
-    await qaPortalQualityTracker.projectsDropdown.waitFor({ state: 'visible', timeout: 3000 });
+    // open Save modal
+    await qa.saveResultLink.click();
+    await qa.projectsDropdown.waitFor({ state: 'visible', timeout: 5000 });
 
-    // Try to select project BEFORE filling values.
-    // If selection fails (option not found or disabled), skip filling and continue to next platform.
-    const projectSelected = await qaPortalQualityTracker.selectProjectByPlatform(platformKey);
+    // try to select project — skip if not available or disabled
+    const projectSelected = await qa.selectProjectByPlatform(platformKey);
     if (!projectSelected) {
       console.log(`⏭️  Skipping ${platformKey} — project not available or disabled`);
-      // set all fields to 0 before moving on (as requested)
-      if (typeof qaPortalQualityTracker.clearAllFields === 'function') {
-        await qaPortalQualityTracker.clearAllFields();
-      }
-      // close modal if needed (attempt press Esc or click outside). Adjust if your UI differs.
-      await qaPortalQualityTracker.page.keyboard.press('Escape').catch(() => {});
+      skipped.push(platformKey);
+      await page.keyboard.press('Escape').catch(() => {});
       continue;
-    };
+    }
 
-    // 5) prepare stats for this platform — fill values only when project is selectable
-    const stats = (statsByPlatform as Record<string, Record<string, number>>)[platformKey];
+    // fill stats for this platform
+    const stats = statsByPlatform[platformKey];
     if (stats && Object.keys(stats).length > 0) {
-      await qaPortalQualityTracker.fillBugsByPriority(stats);
+      await qa.fillBugsByPriority(stats);
       console.log(`Filled values for ${platformKey}:`, stats);
     } else {
-      console.log(`No data for ${platformKey}; leaving default values`);
+      console.log(`No Jira data for ${platformKey}, submitting with default values`);
+    }
+
+    // save and wait for overlay to reappear (inputs locked = save completed)
+    await qa.saveResultButton.click();
+    await expect(qa.disabledInput).toBeVisible({ timeout: 8000 });
+
+    synced.push(platformKey);
+    console.log(`✅ Synced: ${platformKey}`);
   }
 
-    // 6) click Save
-    await qaPortalQualityTracker.saveResultButton.click();
+  // final report
+  console.log(`\n${GREEN}========== SYNC REPORT ==========${RESET}`);
+  console.log(`${GREEN}✅ Synced  (${synced.length}): ${synced.join(', ') || '—'}${RESET}`);
+  console.log(`${RED}⏭️  Skipped (${skipped.length}): ${skipped.join(', ') || '—'}${RESET}`);
+  console.log(`${GREEN}=================================${RESET}`);
 
-    // 7) wait for UI to return to disabled state before next platform
-    // Wait that field becomes disabled again (save action should disable inputs)
-    await expect(qaPortalQualityTracker.disabledInput).toBeEnabled({ timeout: 8000 });
-
-    synced++;
-    console.log(`✅ Synced ${platformKey}`);
-  }
-
-  console.log(GREEN + `\n✅ All ${synced} platforms synced to QA Portal` + RESET);
-  expect(synced).toBeGreaterThan(0);
+  expect(synced.length + skipped.length).toBeGreaterThan(0);
 
   await context.close();
-
-    
 });

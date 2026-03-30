@@ -60,27 +60,31 @@ export class QAPortalQualityTracker {
             return false;
         }
 
-         // проверить, есть ли опция в dropdown'е и включена ли она
-    const option = this.page.getByRole('option', { name: projectName });
-    try {
-        await option.waitFor({ state: 'visible', timeout: 2000 });
-        
-        // проверить, disabled ли опция
-        const isDisabled = await option.evaluate((el: HTMLOptionElement) => el.disabled);
-        if (isDisabled) {
-            console.log(`⚠️ Project option "${projectName}" is DISABLED. Skipping...`);
+        try {
+            // открыть дропдаун кликом, чтобы опции появились в DOM
+            await this.projectsDropdown.click();
+
+            const option = this.page.getByRole('option', { name: projectName, exact: true });
+            await option.waitFor({ state: 'visible', timeout: 3000 });
+
+            // проверить, disabled ли опция
+            const isDisabled = await option.evaluate((el: HTMLOptionElement) => el.disabled);
+            if (isDisabled) {
+                console.log(`⚠️ Project option "${projectName}" is DISABLED. Skipping...`);
+                await this.page.keyboard.press('Escape').catch(() => {});
+                return false;
+            }
+
+            // кликнуть по опции для выбора
+            await option.click();
+            await this.page.waitForTimeout(500);
+            console.log(`✅ Selected project: ${projectName}`);
+            return true;
+        } catch (err) {
+            console.log(`⚠️ Project option "${projectName}" not found or not available. Skipping...`);
+            await this.page.keyboard.press('Escape').catch(() => {});
             return false;
         }
-
-        // если включена — выбираем
-        await this.projectsDropdown.selectOption(projectName);
-        await this.page.waitForTimeout(500);
-        console.log(`✅ Selected project: ${projectName}`);
-        return true;
-    } catch (err) {
-        console.log(`⚠️ Project option "${projectName}" not found or not available. Skipping...`);
-        return false;
-    }
     };
     
 
