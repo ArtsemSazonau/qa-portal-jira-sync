@@ -54,35 +54,33 @@ export class QAPortalQualityTracker {
     };
 
     selectProjectByPlatform = async (platform: string): Promise<boolean> => {
-        const projectName = platformMapping[platform];
-        if (!projectName) {
+        const value = platformMapping[platform];
+
+        if (!value) {
             console.log(`⚠️ Skipping unmapped platform: ${platform}`);
             return false;
         }
 
         try {
-            // открыть дропдаун кликом, чтобы опции появились в DOM
-            await this.projectsDropdown.click();
+            await this.projectsDropdown.selectOption({ label: value });
 
-            const option = this.page.getByRole('option', { name: projectName, exact: true });
-            await option.waitFor({ state: 'visible', timeout: 3000 });
+            // проверить disabled
+            const option = this.projectsDropdown.locator(`option[value="${value}"]`);
+            const isDisabled = await option.isDisabled();
 
-            // проверить, disabled ли опция
-            const isDisabled = await option.evaluate((el: HTMLOptionElement) => el.disabled);
             if (isDisabled) {
-                console.log(`⚠️ Project option "${projectName}" is DISABLED. Skipping...`);
-                await this.page.keyboard.press('Escape').catch(() => {});
+                console.log(`⚠️ Project "${value}" is DISABLED. Skipping...`);
                 return false;
             }
 
-            // кликнуть по опции для выбора
-            await option.click();
-            await this.page.waitForTimeout(500);
-            console.log(`✅ Selected project: ${projectName}`);
+            // выбрать опцию
+            await this.projectsDropdown.selectOption(value);
+
+            console.log(`✅ Selected project value: ${value}`);
             return true;
+
         } catch (err) {
-            console.log(`⚠️ Project option "${projectName}" not found or not available. Skipping...`);
-            await this.page.keyboard.press('Escape').catch(() => {});
+            console.log(`⚠️ Project "${value}" not found. Skipping...`);
             return false;
         }
     };
